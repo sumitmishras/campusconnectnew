@@ -1,4 +1,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Flutter only adds this to the debug and profile manifests. Without it
+         here, a release build cannot reach Supabase at all: no sign-in, no
+         messages, no Realtime socket. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+
     <application
         android:label="campus_connect"
         android:name="${applicationName}"
@@ -40,6 +45,12 @@
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
+        </intent>
+        <!-- url_launcher checks for an app that can open a shared attachment's
+             signed URL before launching it. -->
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="https"/>
         </intent>
     </queries>
 </manifest>

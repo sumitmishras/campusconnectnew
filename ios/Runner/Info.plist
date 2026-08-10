@@ -66,5 +66,9 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<!-- Shown when a student picks a photo to share in a chat. iOS terminates
+	     the app if the picker is opened without this. -->
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Campus Connect needs access to your photos so you can share them in a chat.</string>
 </dict>
 </plist>
