@@ -1,30 +1,52 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:campus_connect/main.dart';
+import 'package:campus_connect/core/services/cu_identity.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
+  group('CU login id validation', () {
+    test('accepts a real CU email', () {
+      expect(CuIdentity.validate('21bcs5084@cuchd.in'), isNull);
+      expect(CuIdentity.validate('21BCS5084@cuchd.in'), isNull);
+    });
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+    test('rejects non-CU domains', () {
+      expect(CuIdentity.validate('21bcs5084@gmail.com'), isNotNull);
+      expect(CuIdentity.validate('someone@outlook.com'), isNotNull);
+    });
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
+    test('rejects a malformed university id', () {
+      expect(CuIdentity.validate('hello@cuchd.in'), isNotNull);
+      expect(CuIdentity.validate('21bcs5084'), isNotNull);
+      expect(CuIdentity.validate(''), isNotNull);
+    });
+  });
 
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+  group('CU login id parsing', () {
+    test('decodes batch, program and roll number', () {
+      final id = CuIdentity.parse('21bcs5084@cuchd.in')!;
+
+      expect(id.uid, '21bcs5084');
+      expect(id.displayUid, '21BCS5084');
+      expect(id.admissionYear, 2021);
+      expect(id.programCode, 'bcs');
+      expect(id.rollNumber, '5084');
+      expect(id.department, 'Computer Science');
+      expect(id.course, 'B.E. CSE');
+      expect(id.email, '21bcs5084@cuchd.in');
+    });
+
+    test('year of study stays within 1st..4th year', () {
+      final id = CuIdentity.parse('21bcs5084')!;
+      expect(
+        ['1st Year', '2nd Year', '3rd Year', '4th Year'],
+        contains(id.yearOfStudy),
+      );
+    });
+
+    test('falls back gracefully for unknown program codes', () {
+      final id = CuIdentity.parse('23zzz1234@cuchd.in')!;
+      expect(id.department, 'Chandigarh University');
+      expect(id.course, 'Student');
+    });
   });
 }
