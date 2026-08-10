@@ -1,0 +1,19 @@
+Campus Connect is a private student community application for Chandigarh University, India.
+
+WHAT WE SEND
+Transactional email only. The single message type is a one-time 8-digit sign-in code, sent to a student's own email address at the moment they type that address into the app and press "send code". We also send account-security notices (email change, account deletion confirmation). We send no marketing, no newsletters, no promotional content of any kind.
+
+WHO RECEIVES IT
+Only people who typed their own address into our app seconds earlier. We do not have, buy, rent, import or scrape recipient lists. Sign-up is additionally restricted to university email addresses, enforced both client-side and by a database trigger, so an address outside the university domain cannot even request a code.
+
+VOLUME
+Under 500 messages per day expected at launch, with a peak during semester registration. Each message is a direct response to a user action; there is no bulk or scheduled sending path in the system.
+
+BOUNCE AND COMPLAINT HANDLING
+An SES configuration set named "campus-connect" is attached to the sending identity as its default. It publishes BOUNCE, COMPLAINT, REJECT and RENDERING_FAILURE events to an SNS topic that is monitored. Account-level suppression is enabled for BOUNCE and COMPLAINT, so a hard-bounced or complaining address is automatically suppressed from future sends. Reputation metrics are enabled on the configuration set.
+
+UNSUBSCRIBE
+Because the only mail we send is a code the recipient requested moments before, there is no mailing list to unsubscribe from - a student stops receiving mail by not requesting a code. Students can delete their account from within the app, which removes their address from our database after a 30-day grace period.
+
+INFRASTRUCTURE NOTE
+The service runs on EC2 in us-east-1 in this account. The website URL given is the application's live API endpoint on a temporary IP-based hostname; a permanent domain is being registered and we will verify it as a domain identity with DKIM once it is in place.
