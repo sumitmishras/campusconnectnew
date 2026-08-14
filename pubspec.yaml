@@ -45,6 +45,14 @@ dependencies:
   supabase_flutter: ^2.8.0
   file_picker: ^11.0.3
   url_launcher: ^6.3.2
+  # Push notifications. FCM is the transport only — the notification rows
+  # themselves are written by Postgres (0015) and the FCM key lives in the
+  # push-notify Edge Function, never here.
+  firebase_core: ^4.1.1
+  firebase_messaging: ^16.0.2
+  # FCM does not draw a notification while the app is in the foreground;
+  # this is what puts one in the tray in that case.
+  flutter_local_notifications: ^19.4.2
 
 dev_dependencies:
   flutter_test:

@@ -272,7 +272,10 @@ class UserProvider with ChangeNotifier {
       changed = true;
       return user.copyWith(
         isOnline: online,
-        lastActive: online ? DateTime.now() : user.lastActive,
+        // Leaving the presence channel is the last-seen moment, observed as it
+        // happens. Coming online needs no stamp — "Online now" is the label,
+        // and inventing one is how a wrong time gets on screen.
+        lastActive: online ? null : DateTime.now().toUtc(),
       );
     }
 

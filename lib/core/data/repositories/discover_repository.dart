@@ -328,14 +328,26 @@ class MockDiscoverRepository implements DiscoverRepository {
     if (query.onlineOnly) {
       result = result.where((s) => s.isOnline && !s.hideActiveStatus);
     } else if (query.recentlyActive) {
-      final cutoff = DateTime.now().subtract(kRecentlyActiveWindow);
+      final cutoff = DateTime.now().toUtc().subtract(kRecentlyActiveWindow);
+      // A student with no last-seen at all is not evidence of recent activity,
+      // so they are not "recently active". They used to pass this filter
+      // because an absent timestamp was being read back as `now`.
       result = result.where((s) =>
-          (s.isOnline || s.lastActive.isAfter(cutoff)) && !s.hideActiveStatus);
+          (s.isOnline || (s.lastActive?.toUtc().isAfter(cutoff) ?? false)) &&
+          !s.hideActiveStatus);
     }
 
     final list = result.toList();
     if (query.recentlyActive || query.onlineOnly) {
-      list.sort((a, b) => b.lastActive.compareTo(a.lastActive));
+      // Unknown sorts last, behind everyone with an actual timestamp.
+      list.sort((a, b) {
+        final sa = a.lastActive;
+        final sb = b.lastActive;
+        if (sa == null && sb == null) return 0;
+        if (sa == null) return 1;
+        if (sb == null) return -1;
+        return sb.compareTo(sa);
+      });
     }
     return list;
   }

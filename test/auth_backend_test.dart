@@ -21,6 +21,9 @@ class _NullProfiles implements ProfileRepository {
 
   @override
   Future<void> setPresence({required bool online}) async {}
+
+  @override
+  Future<bool> uidExists(String uid) async => false;
 }
 
 /// Stands in for whichever backend is configured, so the provider's state
@@ -42,6 +45,13 @@ class _FakeBackend implements AuthBackend {
 
   @override
   Future<User?> restoreSession() async => existingProfile;
+
+  @override
+  Future<bool> uidExists(String uid) async {
+    calls.add('uidExists:$uid');
+    if (failWith != null) throw AuthFailure(failWith!);
+    return existingProfile != null;
+  }
 
   @override
   Future<void> sendOtp(String email) async {

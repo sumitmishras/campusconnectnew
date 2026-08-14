@@ -7,12 +7,13 @@ import 'email_login_screen.dart';
 class WelcomeScreen extends StatelessWidget {
   const WelcomeScreen({super.key});
 
-  void _open(BuildContext context, {required bool isReturning}) {
+  /// One destination. Whether this turns into a sign-in or a sign-up is
+  /// worked out from the university id on the next screen, so asking the
+  /// student to declare it here was a choice they could get wrong.
+  void _open(BuildContext context) {
     Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (_) => EmailLoginScreen(isReturning: isReturning),
-      ),
+      MaterialPageRoute(builder: (_) => const EmailLoginScreen()),
     );
   }
 
@@ -70,19 +71,13 @@ class WelcomeScreen extends StatelessWidget {
                     _buildHighlights(theme),
                     const Spacer(),
                     CustomButton(
-                      text: 'Get Started',
+                      text: 'Continue with university ID',
                       icon: LucideIcons.arrowRight,
-                      onPressed: () => _open(context, isReturning: false),
-                    ),
-                    const SizedBox(height: 12),
-                    CustomButton(
-                      text: 'I already have an account',
-                      isOutlined: true,
-                      onPressed: () => _open(context, isReturning: true),
+                      onPressed: () => _open(context),
                     ),
                     const SizedBox(height: 16),
                     Text(
-                      'Only @cuchd.in emails can join.',
+                      'New or returning — same step. Only @cuchd.in students can join.',
                       style: theme.textTheme.bodySmall,
                       textAlign: TextAlign.center,
                     ),

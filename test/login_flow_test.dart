@@ -25,7 +25,7 @@ void main() {
 
     // 1. Welcome screen.
     expect(find.byType(WelcomeScreen), findsOneWidget);
-    await tester.tap(find.text('Get Started'));
+    await tester.tap(find.text('Continue with university ID'));
     await tester.pumpAndSettle();
 
     // 2. Enter the CU email.
@@ -84,7 +84,7 @@ void main() {
     await tester.pumpWidget(const CampusConnectApp());
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Get Started'));
+    await tester.tap(find.text('Continue with university ID'));
     await tester.pumpAndSettle();
 
     await tester.enterText(

@@ -12,7 +12,15 @@ import '../../navigation/main_navigation.dart';
 import 'registration_wizard.dart';
 
 class OTPScreen extends StatefulWidget {
-  const OTPScreen({super.key});
+  /// Whether the entry screen found a finished account for this id.
+  ///
+  /// Wording only — both branches verify the same code the same way, and what
+  /// actually happens next is decided by [AuthProvider.verifyOtp] once there
+  /// is a session. Null means the lookup did not answer, in which case the
+  /// screen stays neutral rather than guessing.
+  final bool? isReturning;
+
+  const OTPScreen({super.key, this.isReturning});
 
   @override
   State<OTPScreen> createState() => _OTPScreenState();
@@ -168,7 +176,14 @@ class _OTPScreenState extends State<OTPScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text('Enter your\ncode', style: theme.textTheme.displayMedium),
+              Text(
+                switch (widget.isReturning) {
+                  true => 'Welcome\nback',
+                  false => 'Let\'s get you\nset up',
+                  null => 'Enter your\ncode',
+                },
+                style: theme.textTheme.displayMedium,
+              ),
               const SizedBox(height: 16),
               RichText(
                 text: TextSpan(

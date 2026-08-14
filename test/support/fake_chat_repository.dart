@@ -172,6 +172,11 @@ class FakeChatRepository implements ChatRepository {
   Stream<IncomingMessage> messages() => _messages.stream;
 
   @override
+  void syncConversation(String conversationId, {int? headSeq}) {
+    calls.add('sync:$conversationId:$headSeq');
+  }
+
+  @override
   Stream<TypingSignal> typing() => _typing.stream;
 
   @override
@@ -187,6 +192,9 @@ class FakeChatRepository implements ChatRepository {
 
   @override
   Future<void> notifyTyping(String conversationId) async {}
+
+  @override
+  Future<void> notifyStoppedTyping(String conversationId) async {}
 
   @override
   Future<void> notifyRead({

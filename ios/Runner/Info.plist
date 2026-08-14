@@ -70,5 +70,13 @@
 	     the app if the picker is opened without this. -->
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Campus Connect needs access to your photos so you can share them in a chat.</string>
+	<!-- Lets APNs wake the app for a message that carries a data payload, so
+	     a tapped notification knows which conversation to open even when the
+	     app was not running. Without it iOS delivers the alert but never runs
+	     any Dart code, and the tap lands on the last screen instead. -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>remote-notification</string>
+	</array>
 </dict>
 </plist>

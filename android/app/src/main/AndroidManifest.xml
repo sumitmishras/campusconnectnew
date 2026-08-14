@@ -3,6 +3,9 @@
          here, a release build cannot reach Supabase at all: no sign-in, no
          messages, no Realtime socket. -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Android 13+ will not show a notification without this being granted
+         at runtime; PushService asks for it after sign-in. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
 
     <application
         android:label="campus_connect"
@@ -30,6 +33,13 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+        <!-- The channel the push-notify Edge Function names in every message.
+             A message whose channel does not exist is dropped by Android
+             without a trace, so the two have to agree. -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="campus_connect_default" />
+
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

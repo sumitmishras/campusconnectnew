@@ -1,0 +1,9 @@
+{
+  "//": "Edge Functions run on Deno, not Node. Without this the editor's TypeScript server reports `Deno` and the jsr: import as unresolved — the function itself builds and deploys fine either way.",
+  "imports": {
+    "@supabase/supabase-js": "jsr:@supabase/supabase-js@2"
+  },
+  "compilerOptions": {
+    "lib": ["deno.window", "deno.ns"]
+  }
+}

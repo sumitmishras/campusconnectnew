@@ -1,5 +1,6 @@
 import '../models/chat_model.dart';
 import '../models/user_model.dart';
+import 'profile_mapper.dart' show parseServerDate;
 import 'repositories/storage_repository.dart';
 
 /// Translates the chat RPC results into the models the UI already speaks.
@@ -34,7 +35,9 @@ class ChatMapper {
       lookingFor: const [],
       profilePhotoUrl: row['other_user_avatar'] as String? ?? '',
       isOnline: row['other_is_online'] as bool? ?? false,
-      lastActive: parseDate(row['other_last_active']) ?? DateTime.now(),
+      // Null when the presence pair came back empty. "Offline" is the honest
+      // rendering of that; `DateTime.now()` was not.
+      lastActive: parseDate(row['other_last_active']),
       // A null presence pair is exactly what `get_chat_list` returns for a
       // student who switched "hide active status" on.
       hideActiveStatus: hidden,
@@ -224,9 +227,10 @@ class ChatMapper {
     return 0;
   }
 
-  static DateTime? parseDate(Object? value) {
-    if (value is String) return DateTime.tryParse(value)?.toLocal();
-    if (value is DateTime) return value.toLocal();
-    return null;
-  }
+  /// Message timestamps are read in the phone's zone because that is how they
+  /// are rendered — bubbles are stamped `hh:mm a` and grouped by local day.
+  /// The ordering they are *sorted* by is `seq`, not this, so a clock that
+  /// disagrees with the server cannot reorder a thread.
+  static DateTime? parseDate(Object? value) =>
+      parseServerDate(value)?.toLocal();
 }

@@ -110,16 +110,25 @@ class CuIdentity {
   }
 
   /// Validation message for the login field, or `null` when the id is fine.
+  ///
+  /// Accepts the bare id (`21bcs5084`) as well as the full address
+  /// (`21bcs5084@cuchd.in`). The entry screen asks for the id on its own —
+  /// it is what is printed on the ID card, and the domain is the same for
+  /// everyone — so requiring the student to type `@cuchd.in` was friction
+  /// with nothing behind it. [parse] already accepted both; only this
+  /// message gate did not.
+  ///
+  /// When a domain *is* typed it still has to be the right one, so pasting a
+  /// personal Gmail address fails here rather than at the database trigger.
   static String? validate(String input) {
     final value = input.trim();
-    if (value.isEmpty) return 'Please enter your CU email';
+    if (value.isEmpty) return 'Please enter your university ID';
 
-    if (!value.contains('@')) {
-      return 'Use your full CU email, e.g. 21bcs5084@$allowedDomain';
-    }
-    final parts = value.toLowerCase().split('@');
-    if (parts.length != 2 || parts.last != allowedDomain) {
-      return 'Only @$allowedDomain emails can join Campus Connect';
+    if (value.contains('@')) {
+      final parts = value.toLowerCase().split('@');
+      if (parts.length != 2 || parts.last != allowedDomain) {
+        return 'Only @$allowedDomain emails can join Campus Connect';
+      }
     }
     if (parse(value) == null) {
       return 'That does not look like a CU University ID (e.g. 21BCS5084)';

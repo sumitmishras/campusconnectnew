@@ -1,5 +1,8 @@
-# Uncomment this line to define a global platform for your project
-# platform :ios, '13.0'
+# Firebase 12.x (what firebase_core 4.x pulls in) will not build below iOS
+# 15, so this is a floor rather than a preference. It matches
+# IPHONEOS_DEPLOYMENT_TARGET in Runner.xcodeproj — CocoaPods and Xcode
+# disagreeing here is the usual cause of "module not found" on a clean build.
+platform :ios, '15.0'
 
 # CocoaPods analytics sends network stats synchronously affecting flutter build latency.
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'

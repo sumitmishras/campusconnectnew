@@ -9,11 +9,21 @@ import '../../../core/widgets/custom_button.dart';
 import '../../../core/widgets/custom_text_field.dart';
 import 'otp_screen.dart';
 
-/// Login / signup with a Chandigarh University email (`21bcs5084@cuchd.in`).
+/// The single entry point for both signing in and signing up.
+///
+/// The student types the university id printed on their card — `21BCS5084` —
+/// and nothing else. Before any mail goes out we ask the backend whether a
+/// finished account already owns that id (`uid_exists`, migration 0014), so
+/// the next screen can greet a returning student instead of talking to
+/// everyone as if they were new.
+///
+/// That lookup is presentation only. Both branches take the identical OTP
+/// path, and what actually happens after the code is verified is decided by
+/// [AuthProvider.verifyOtp] reading the profile with a real session. Keeping
+/// one flow is the point: two flows would need to be kept in step forever,
+/// and every divergence between them would be a way to get stuck.
 class EmailLoginScreen extends StatefulWidget {
-  final bool isReturning;
-
-  const EmailLoginScreen({super.key, this.isReturning = false});
+  const EmailLoginScreen({super.key});
 
   @override
   State<EmailLoginScreen> createState() => _EmailLoginScreenState();
@@ -49,7 +59,17 @@ class _EmailLoginScreenState extends State<EmailLoginScreen> {
       return;
     }
 
-    final ok = await auth.requestOtp(input);
+    // Does this id already have a finished account? `null` means the lookup
+    // itself did not answer — a flaky network on the first screen. That is
+    // deliberately not treated as "no account": the code still goes out, the
+    // next screen just stays neutral, and verifyOtp decides for real.
+    final isReturning = await auth.uidExists(input);
+    if (!mounted) return;
+
+    // The id is enough on its own; the domain is the same for every student.
+    final email = CuIdentity.parse(input)!.email;
+
+    final ok = await auth.requestOtp(email);
     if (!mounted) return;
 
     if (!ok) {
@@ -59,7 +79,7 @@ class _EmailLoginScreenState extends State<EmailLoginScreen> {
 
     Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => const OTPScreen()),
+      MaterialPageRoute(builder: (_) => OTPScreen(isReturning: isReturning)),
     );
   }
 
@@ -74,7 +94,9 @@ class _EmailLoginScreenState extends State<EmailLoginScreen> {
           icon: const Icon(LucideIcons.chevronLeft),
           onPressed: () => Navigator.pop(context),
         ),
-        title: Text(widget.isReturning ? 'Welcome back' : 'Join Campus Connect'),
+        // No "log in" / "sign up" split: which one this turns out to be is
+        // worked out from the id, not chosen by the student up front.
+        title: const Text('Campus Connect'),
       ),
       body: SafeArea(
         child: SingleChildScrollView(
@@ -89,20 +111,22 @@ class _EmailLoginScreenState extends State<EmailLoginScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Text('My CU email\nis', style: theme.textTheme.displayMedium),
+                Text('My university\nID is', style: theme.textTheme.displayMedium),
                 const SizedBox(height: 16),
                 Text(
-                  'Campus Connect is only for Chandigarh University students, so we verify your @cuchd.in address before letting you in.',
+                  'Enter the ID printed on your student card. We will send a code to your @cuchd.in inbox — new here or coming back, it is the same step.',
                   style: theme.textTheme.bodyLarge
                       ?.copyWith(color: theme.textTheme.bodySmall?.color),
                 ),
                 const SizedBox(height: 32),
                 CustomTextField(
-                  label: 'University Email',
-                  hint: '21bcs5084@cuchd.in',
+                  label: 'University ID',
+                  // "e.g." on purpose: a hint that reads exactly like a valid
+                  // id looks like prefilled text you can just submit.
+                  hint: 'e.g. 21BCS5084',
                   controller: _controller,
-                  keyboardType: TextInputType.emailAddress,
-                  prefixIcon: LucideIcons.mail,
+                  keyboardType: TextInputType.text,
+                  prefixIcon: LucideIcons.idCard,
                   autofocus: true,
                   errorText: _error,
                   onChanged: _onChanged,
@@ -180,8 +204,9 @@ class _EmailLoginScreenState extends State<EmailLoginScreen> {
         const SizedBox(width: 8),
         Expanded(
           child: Text(
-            'Use the university id printed on your ID card, for example '
-            '21BCS5084@cuchd.in. Personal Gmail or Outlook addresses are rejected.',
+            'Just the ID — for example 21BCS5084. You can type the full '
+            '@cuchd.in address if you prefer; personal Gmail or Outlook '
+            'addresses are not accepted.',
             style: theme.textTheme.bodySmall,
           ),
         ),

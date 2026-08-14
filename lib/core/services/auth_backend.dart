@@ -46,6 +46,13 @@ abstract class AuthBackend {
   /// The signed-in student, or null when there is no session.
   Future<User?> restoreSession();
 
+  /// Whether a finished account already owns this university id.
+  ///
+  /// The entry screen asks this before sending anything, so it can tell the
+  /// student whether they are signing in or signing up. Both branches still
+  /// go through [sendOtp] — the answer only decides what the screens say.
+  Future<bool> uidExists(String uid);
+
   Future<void> sendOtp(String email);
 
   Future<AuthOutcome> verifyOtp(String email, String code);
@@ -100,6 +107,9 @@ class SupabaseAuthBackend implements AuthBackend {
     if (_client.auth.currentSession == null) return null;
     return _profiles.fetchCurrent();
   }
+
+  @override
+  Future<bool> uidExists(String uid) => _profiles.uidExists(uid);
 
   @override
   Future<void> sendOtp(String email) async {
@@ -256,6 +266,17 @@ class MockAuthBackend implements AuthBackend {
 
   @override
   Future<User?> restoreSession() => _store.read();
+
+  @override
+  Future<bool> uidExists(String uid) async {
+    // Deliberately mirrors what verifyOtp() below counts as a returning
+    // student. If these two disagreed, the entry screen would promise
+    // "welcome back" and then drop the student into the wizard anyway.
+    final wanted = uid.trim().toLowerCase();
+    if (!await _store.isKnownAccount(wanted)) return false;
+    final saved = await _store.read();
+    return saved != null && saved.uid.toLowerCase() == wanted;
+  }
 
   @override
   Future<void> sendOtp(String email) async {

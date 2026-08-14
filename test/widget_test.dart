@@ -9,6 +9,15 @@ void main() {
       expect(CuIdentity.validate('21BCS5084@cuchd.in'), isNull);
     });
 
+    test('accepts the bare university id, with or without the domain', () {
+      // The entry screen asks for the id alone — it is what is on the ID card,
+      // and the domain is identical for every student. Both forms have to
+      // reach the same place.
+      expect(CuIdentity.validate('21bcs5084'), isNull);
+      expect(CuIdentity.validate('21BCS5084'), isNull);
+      expect(CuIdentity.validate('  21bcs5084  '), isNull);
+    });
+
     test('rejects non-CU domains', () {
       expect(CuIdentity.validate('21bcs5084@gmail.com'), isNotNull);
       expect(CuIdentity.validate('someone@outlook.com'), isNotNull);
@@ -16,7 +25,8 @@ void main() {
 
     test('rejects a malformed university id', () {
       expect(CuIdentity.validate('hello@cuchd.in'), isNotNull);
-      expect(CuIdentity.validate('21bcs5084'), isNotNull);
+      expect(CuIdentity.validate('hello'), isNotNull);
+      expect(CuIdentity.validate('21bcs'), isNotNull);
       expect(CuIdentity.validate(''), isNotNull);
     });
   });

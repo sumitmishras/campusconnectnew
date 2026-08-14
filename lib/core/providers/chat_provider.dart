@@ -41,11 +41,17 @@ class ChatProvider with ChangeNotifier {
   bool _isLoading = false;
   String _query = '';
 
-  /// Keyed by conversation id, with a timer that clears it — a typing
-  /// indicator is only valid for a few seconds and the "stopped" broadcast can
-  /// be lost.
-  final Map<String, Timer> _typingTimers = {};
-  final Set<String> _typingConversationIds = {};
+  /// Who is currently typing, per thread, each with the timer that will forget
+  /// them. Keyed by sender as well as by thread so that one person in a group
+  /// stopping does not clear the indicator the other one is still earning, and
+  /// so a "stopped" broadcast that never arrives cannot leave a "typing…" on
+  /// screen for ever — the timer is the backstop, not the happy path.
+  final Map<String, Map<String, Timer>> _typingBy = {};
+
+  /// This student's own outgoing typing state, per thread: when it was last
+  /// broadcast, and the timer that will announce they have stopped.
+  final Map<String, DateTime> _typingSentAt = {};
+  final Map<String, Timer> _typingIdleTimers = {};
 
   /// The thread currently on screen, so a message arriving in it is marked read
   /// rather than counted as unread.
@@ -65,6 +71,10 @@ class ChatProvider with ChangeNotifier {
 
   bool get isLoading => _isLoading;
   String get query => _query;
+
+  /// The thread on screen, if any. Read by `PushService` so a notification is
+  /// not raised for a message the student is already looking at.
+  String? get openConversationId => _openConversationId;
 
   List<Chat> get chats {
     final list = _query.isEmpty
@@ -105,7 +115,7 @@ class ChatProvider with ChangeNotifier {
       _groupChats.fold(0, (sum, g) => sum + (g.isMuted ? 0 : g.unreadCount));
 
   bool isTyping(String chatId) =>
-      _typingConversationIds.contains(_conversationId(chatId));
+      _typingBy[_conversationId(chatId)]?.isNotEmpty ?? false;
 
   bool isMuted(String chatId) {
     final id = _conversationId(chatId);
@@ -136,14 +146,34 @@ class ChatProvider with ChangeNotifier {
     }
   }
 
-  /// Pull to refresh, and after joining or leaving a group.
+  /// Pull to refresh, after joining or leaving a group, and on the way back
+  /// from a dropped socket or a spell in the background.
   Future<void> refresh() async {
     try {
       final snapshot = await _repo.fetchChatList();
       _replace(snapshot);
+      _syncLoadedThreads();
       notifyListeners();
     } catch (_) {
       // Keep what is on screen.
+    }
+  }
+
+  /// Closes the gap in any thread whose history is already on screen.
+  ///
+  /// The chat list carries each thread's authoritative head, so this is where
+  /// a phone that missed three messages in someone's pocket finds out — the
+  /// repository fetches exactly what is above what it holds. Reloading whole
+  /// threads instead would be both slower and wrong, since it would throw away
+  /// the messages still in flight from this device.
+  void _syncLoadedThreads() {
+    for (final chat in _chats) {
+      if (!chat.isHydrated) continue;
+      _repo.syncConversation(chat.id, headSeq: chat.lastSeq);
+    }
+    for (final group in _groupChats) {
+      if (!group.isHydrated) continue;
+      _repo.syncConversation(group.conversationId, headSeq: group.lastSeq);
     }
   }
 
@@ -226,11 +256,7 @@ class ChatProvider with ChangeNotifier {
     _chats.clear();
     _groupChats.clear();
     _conversationBySource.clear();
-    _typingConversationIds.clear();
-    for (final timer in _typingTimers.values) {
-      timer.cancel();
-    }
-    _typingTimers.clear();
+    _clearAllTyping();
     _openConversationId = null;
     _query = '';
     _lastError = null;
@@ -270,7 +296,10 @@ class ChatProvider with ChangeNotifier {
       _chats[i] = _chats[i].copyWith(
         otherUser: other.copyWith(
           isOnline: online,
-          lastActive: online ? DateTime.now() : other.lastActive,
+          // Leaving the channel is the last-seen moment, observed rather than
+          // guessed: they were connected right up to it. Going online needs no
+          // stamp — the label reads "Online now" and nothing else is shown.
+          lastActive: online ? null : DateTime.now().toUtc(),
         ),
       );
       changed = true;
@@ -285,10 +314,12 @@ class ChatProvider with ChangeNotifier {
     _receiptSub?.cancel();
     _presenceSub?.cancel();
     _reconnectSub?.cancel();
-    for (final timer in _typingTimers.values) {
-      timer.cancel();
+    // Tell anyone watching that this student has stopped, before the channels
+    // go — otherwise the last thing they said on the wire is "still typing".
+    for (final id in _typingIdleTimers.keys.toList()) {
+      unawaited(_repo.notifyStoppedTyping(id));
     }
-    _typingTimers.clear();
+    _clearAllTyping();
     _repo.close();
     super.dispose();
   }
@@ -312,17 +343,20 @@ class ChatProvider with ChangeNotifier {
     if (chatIndex != -1) {
       final chat = _chats[chatIndex];
       if (_alreadyHave(chat.messages, message)) return;
+      // A message that arrives after a newer one — two events crossing on a
+      // slow connection — must not rewind the row in the chat list.
+      final isHead = message.seq >= chat.lastSeq;
 
       _chats[chatIndex] = chat.copyWith(
-        // Only append to a thread that has its history: appending to an
-        // unopened one would render a single bubble with a hole above it.
-        messages: chat.isHydrated ? [...chat.messages, message] : null,
+        // Only merge into a thread that has its history: adding to an unopened
+        // one would render a single bubble with a hole above it.
+        messages: chat.isHydrated ? _merged(chat.messages, message) : null,
         unreadCount: isOpen ? 0 : chat.unreadCount + 1,
-        previewText: message.preview,
-        lastActivity: message.timestamp,
-        lastSeq: message.seq > chat.lastSeq ? message.seq : chat.lastSeq,
+        previewText: isHead ? message.preview : null,
+        lastActivity: isHead ? message.timestamp : null,
+        lastSeq: isHead ? message.seq : chat.lastSeq,
       );
-      _stopTyping(id);
+      _stoppedTyping(id, message.senderId);
       if (isOpen) _acknowledge(id, message.seq);
       notifyListeners();
       return;
@@ -332,15 +366,16 @@ class ChatProvider with ChangeNotifier {
     if (groupIndex != -1) {
       final group = _groupChats[groupIndex];
       if (_alreadyHave(group.messages, message)) return;
+      final isHead = message.seq >= group.lastSeq;
 
       _groupChats[groupIndex] = group.copyWith(
-        messages: group.isHydrated ? [...group.messages, message] : null,
+        messages: group.isHydrated ? _merged(group.messages, message) : null,
         unreadCount: isOpen ? 0 : group.unreadCount + 1,
-        previewText: message.preview,
-        lastActivity: message.timestamp,
-        lastSeq: message.seq > group.lastSeq ? message.seq : group.lastSeq,
+        previewText: isHead ? message.preview : null,
+        lastActivity: isHead ? message.timestamp : null,
+        lastSeq: isHead ? message.seq : group.lastSeq,
       );
-      _stopTyping(id);
+      _stoppedTyping(id, message.senderId);
       if (isOpen) _acknowledge(id, message.seq);
       notifyListeners();
       return;
@@ -354,12 +389,51 @@ class ChatProvider with ChangeNotifier {
 
   /// Realtime can deliver the same insert twice after a reconnect, and a
   /// message this student sent is already on screen optimistically.
+  ///
+  /// Identity is the database's, never the text: `seq` is allocated under a
+  /// row lock on the conversation, so it is unique within a thread and stable
+  /// across every path a message can reach this device by. Two students
+  /// sending "ok" a second apart are two messages and must stay two bubbles.
   static bool _alreadyHave(List<Message> messages, Message candidate) {
     for (final m in messages) {
       if (m.id == candidate.id) return true;
       if (candidate.seq > 0 && m.seq == candidate.seq) return true;
+      if (candidate.clientMsgId.isNotEmpty &&
+          m.clientMsgId == candidate.clientMsgId) {
+        return true;
+      }
     }
     return false;
+  }
+
+  /// Puts [message] where its sequence number says it belongs.
+  ///
+  /// Appending was right only while messages could not overtake each other.
+  /// They can: a delta sync started before a live event can finish after it,
+  /// and a re-join fetches a batch whose middle may already be on screen. The
+  /// server's `seq` is the authority — never the device clock, which two
+  /// phones do not agree on.
+  ///
+  /// Messages still in flight carry `seq == 0` and sort last, which is where
+  /// the person who just typed them expects to see them.
+  static List<Message> _merged(List<Message> messages, Message message) {
+    final next = [...messages];
+    if (message.seq <= 0) {
+      next.add(message);
+      return next;
+    }
+
+    // The first message that belongs after this one: either a higher sequence
+    // number, or a bubble still waiting for one.
+    var at = next.length;
+    for (var i = 0; i < next.length; i++) {
+      if (next[i].seq <= 0 || next[i].seq > message.seq) {
+        at = i;
+        break;
+      }
+    }
+    next.insert(at, message);
+    return next;
   }
 
   /// Swaps a message the thread already holds for a newer copy of itself.
@@ -432,25 +506,88 @@ class ChatProvider with ChangeNotifier {
     return message.copyWith(isSeen: true);
   }
 
+  // ---------------------------------------------------------------- typing
+
   void _onTyping(TypingSignal signal) {
+    final was = isTyping(signal.conversationId);
+
     if (!signal.isTyping) {
-      _stopTyping(signal.conversationId);
-      notifyListeners();
-      return;
+      _stoppedTyping(signal.conversationId, signal.userId);
+    } else {
+      final byUser = _typingBy.putIfAbsent(signal.conversationId, () => {});
+      byUser.remove(signal.userId)?.cancel();
+      // The safety net. If the "stopped" broadcast is lost — a dropped socket,
+      // an app killed mid-sentence — this is what takes the indicator down.
+      // A typist who is still going renews it every [kTypingHeartbeat].
+      byUser[signal.userId] = Timer(kTypingTimeout, () {
+        _stoppedTyping(signal.conversationId, signal.userId);
+        notifyListeners();
+      });
     }
 
-    _typingConversationIds.add(signal.conversationId);
-    _typingTimers[signal.conversationId]?.cancel();
-    _typingTimers[signal.conversationId] = Timer(kTypingTimeout, () {
-      _stopTyping(signal.conversationId);
-      notifyListeners();
-    });
-    notifyListeners();
+    if (was != isTyping(signal.conversationId)) notifyListeners();
   }
 
-  void _stopTyping(String conversationId) {
-    _typingConversationIds.remove(conversationId);
-    _typingTimers.remove(conversationId)?.cancel();
+  /// Forgets one person's typing state in one thread. An empty [userId] — an
+  /// event from a client that did not say who it was about — clears the thread.
+  void _stoppedTyping(String conversationId, String userId) {
+    final byUser = _typingBy[conversationId];
+    if (byUser == null) return;
+
+    if (userId.isEmpty) {
+      for (final timer in byUser.values) {
+        timer.cancel();
+      }
+      byUser.clear();
+    } else {
+      byUser.remove(userId)?.cancel();
+    }
+    if (byUser.isEmpty) _typingBy.remove(conversationId);
+  }
+
+  void _clearAllTyping() {
+    for (final byUser in _typingBy.values) {
+      for (final timer in byUser.values) {
+        timer.cancel();
+      }
+    }
+    _typingBy.clear();
+    for (final timer in _typingIdleTimers.values) {
+      timer.cancel();
+    }
+    _typingIdleTimers.clear();
+    _typingSentAt.clear();
+  }
+
+  /// Tells the other side a message is being typed.
+  ///
+  /// Ephemeral — it travels over a Realtime broadcast channel and is never
+  /// written to Postgres. Called on every keystroke and throttled here rather
+  /// than in the screen, so both the direct and the group input agree: one
+  /// broadcast every [kTypingHeartbeat] while typing continues, and a
+  /// "stopped" [kTypingIdle] after the last one.
+  void notifyTyping(String chatId) {
+    final id = _conversationId(chatId);
+    if (id.isEmpty) return;
+
+    final last = _typingSentAt[id];
+    final now = DateTime.now();
+    if (last == null || now.difference(last) >= kTypingHeartbeat) {
+      _typingSentAt[id] = now;
+      unawaited(_repo.notifyTyping(id));
+    }
+
+    _typingIdleTimers[id]?.cancel();
+    _typingIdleTimers[id] = Timer(kTypingIdle, () => _stopTypingNow(id));
+  }
+
+  /// Announces that this student has stopped. Called when they go quiet, when
+  /// they send, and when they leave the thread — a typing indicator that
+  /// outlives the message it was describing is the thing this prevents.
+  void _stopTypingNow(String conversationId) {
+    _typingIdleTimers.remove(conversationId)?.cancel();
+    if (_typingSentAt.remove(conversationId) == null) return;
+    unawaited(_repo.notifyStoppedTyping(conversationId));
   }
 
   // --------------------------------------------------------------- searching
@@ -565,10 +702,13 @@ class ChatProvider with ChangeNotifier {
     notifyListeners();
   }
 
+  /// Called when the chat screen is disposed. Leaving a thread has to take
+  /// this student's "typing…" off the other side's screen with it — the screen
+  /// is gone, so nothing else ever will.
   void closeThread(String chatId) {
-    if (_openConversationId == _conversationId(chatId)) {
-      _openConversationId = null;
-    }
+    final id = _conversationId(chatId);
+    _stopTypingNow(id);
+    if (_openConversationId == id) _openConversationId = null;
   }
 
   /// Loads the page before the oldest message on screen.
@@ -599,6 +739,10 @@ class ChatProvider with ChangeNotifier {
     final id = _conversationId(chatId);
     final index = _chats.indexWhere((c) => c.id == id);
     if (index == -1) return;
+
+    // The message is on its way, so the "typing…" it earned is over. Sent
+    // before the bubble, so it lands ahead of the message rather than after it.
+    _stopTypingNow(id);
 
     // Generated here, before the first attempt, and reused if the send is
     // retried — that is what makes a dropped response idempotent rather than
@@ -763,12 +907,6 @@ class ChatProvider with ChangeNotifier {
         .copyWith(messages: apply(_groupChats[groupIndex].messages));
   }
 
-  /// Tells the other side a message is being typed. Ephemeral — it travels
-  /// over a Realtime broadcast channel and is never written to Postgres.
-  void notifyTyping(String chatId) {
-    unawaited(_repo.notifyTyping(_conversationId(chatId)));
-  }
-
   void markAsRead(String chatId) {
     final id = _conversationId(chatId);
     final index = _chats.indexWhere((c) => c.id == id);
@@ -837,7 +975,8 @@ class ChatProvider with ChangeNotifier {
   Future<void> deleteChat(String chatId) async {
     final id = _conversationId(chatId);
     _chats.removeWhere((c) => c.id == id);
-    _stopTyping(id);
+    _stopTypingNow(id);
+    _stoppedTyping(id, '');
     notifyListeners();
 
     try {
@@ -962,7 +1101,8 @@ class ChatProvider with ChangeNotifier {
     _groupChats.removeWhere(
         (g) => g.conversationId == conversationId || g.id == id);
     _conversationBySource.remove(id);
-    _stopTyping(conversationId);
+    _stopTypingNow(conversationId);
+    _stoppedTyping(conversationId, '');
     notifyListeners();
   }
 
@@ -988,6 +1128,8 @@ class ChatProvider with ChangeNotifier {
     final group = groupChatById(groupId);
     if (group == null) return;
     final id = group.conversationId;
+
+    _stopTypingNow(id);
 
     final clientMsgId = _uuid.v4();
     final pending = Message(

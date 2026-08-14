@@ -49,7 +49,10 @@ class ProfileMapper {
       // The privacy switch wins over whatever presence reports, so it cannot
       // leak through the embedded relation.
       isOnline: hideActive ? false : (live?['is_online'] as bool? ?? false),
-      lastActive: _parseDate(live?['last_active']) ?? DateTime.now(),
+      // No presence row, or one this student is not allowed to see, leaves
+      // this null — which renders as "Offline". Substituting `DateTime.now()`
+      // here is what used to make a stranger read as "Active just now".
+      lastActive: hideActive ? null : _parseDate(live?['last_active']),
       campusStatus: row['campus_status'] as String?,
       hideDepartment: row['hide_department'] as bool? ?? false,
       hideYear: row['hide_year'] as bool? ?? false,
@@ -178,8 +181,35 @@ class ProfileMapper {
     return const [];
   }
 
-  static DateTime? _parseDate(Object? value) {
-    if (value is String) return DateTime.tryParse(value)?.toLocal();
-    return null;
-  }
+  static DateTime? _parseDate(Object? value) => parseServerDate(value);
+}
+
+/// Parses a timestamp the server sent, as UTC.
+///
+/// Every stored timestamp in this schema is `timestamptz` and PostgREST
+/// serialises it with an offset, so `DateTime.parse` gets it right on its own.
+/// The `isUtc` fallback is for the case where it does not: a bare
+/// `2026-08-11T09:12:00` is read by Dart as *local* time, which on a phone in
+/// IST silently moves a last-seen five and a half hours into the past. Held in
+/// UTC from here on; `lastActiveLabel` is the only place it becomes local.
+DateTime? parseServerDate(Object? value) {
+  if (value is DateTime) return value.toUtc();
+  if (value is! String || value.isEmpty) return null;
+
+  final parsed = DateTime.tryParse(value);
+  if (parsed == null) return null;
+  if (parsed.isUtc) return parsed;
+
+  // No zone in the text at all: the server means UTC.
+  final hasZone = RegExp(r'(Z|[+-]\d{2}:?\d{2})$').hasMatch(value.trim());
+  return hasZone ? parsed.toUtc() : DateTime.utc(
+        parsed.year,
+        parsed.month,
+        parsed.day,
+        parsed.hour,
+        parsed.minute,
+        parsed.second,
+        parsed.millisecond,
+        parsed.microsecond,
+      );
 }

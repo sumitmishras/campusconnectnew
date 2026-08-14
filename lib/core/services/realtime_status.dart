@@ -25,18 +25,30 @@ void Function(RealtimeSubscribeStatus, Object?) realtimeStatus(
   return (status, error) {
     switch (status) {
       case RealtimeSubscribeStatus.subscribed:
-        debugPrint('[realtime] $channel: subscribed');
+        realtimeLog('$channel: subscribed${hasJoined ? ' (re-join)' : ''}');
         if (hasJoined) onRejoin?.call();
         hasJoined = true;
       case RealtimeSubscribeStatus.channelError:
         // The one worth reading. Realtime puts the reason in here — most
         // often that the table is not in the publication, or that the JWT
         // the socket joined with has expired.
-        debugPrint('[realtime] $channel: CHANNEL_ERROR — ${error ?? 'no detail'}');
+        realtimeLog('$channel: CHANNEL_ERROR — ${error ?? 'no detail'}');
       case RealtimeSubscribeStatus.timedOut:
-        debugPrint('[realtime] $channel: timed out joining');
+        realtimeLog('$channel: timed out joining');
       case RealtimeSubscribeStatus.closed:
-        debugPrint('[realtime] $channel: closed');
+        realtimeLog('$channel: closed');
     }
   };
+}
+
+/// Traces the Realtime pipeline — channel joins, the events that arrive on
+/// them, and what the repository does with each one.
+///
+/// Debug builds only. These lines are how you tell "the event never left
+/// Postgres" from "the event arrived and the client dropped it", which is the
+/// distinction that took the longest to make the first time round; leaving
+/// them on in release would put message ids and conversation ids into the
+/// device log, so [kDebugMode] gates the whole thing.
+void realtimeLog(String message) {
+  if (kDebugMode) debugPrint('[realtime] $message');
 }

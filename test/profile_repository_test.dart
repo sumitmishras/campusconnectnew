@@ -58,6 +58,12 @@ class _SpyRepository implements ProfileRepository {
   Future<void> setPresence({required bool online}) async {
     calls.add('setPresence:$online');
   }
+
+  @override
+  Future<bool> uidExists(String uid) async {
+    calls.add('uidExists:$uid');
+    return current?.uid.toLowerCase() == uid.toLowerCase();
+  }
 }
 
 void main() {
@@ -319,6 +325,8 @@ class _StubBackend implements AuthBackend {
   @override
   Future<User?> restoreSession() async => profile;
   @override
+  Future<bool> uidExists(String uid) async => profile != null;
+  @override
   Future<void> sendOtp(String email) async {}
   @override
   Future<AuthOutcome> verifyOtp(String email, String code) async =>
@@ -359,4 +367,6 @@ class _ThrowingRepository implements ProfileRepository {
   @override
   Future<void> setPresence({required bool online}) async =>
       throw Exception('network down');
+  @override
+  Future<bool> uidExists(String uid) async => throw Exception('network down');
 }

@@ -28,6 +28,17 @@ abstract class ProfileRepository {
   /// on every resume; see the note in 0002 about why presence is its own
   /// table rather than a column on `profiles`.
   Future<void> setPresence({required bool online});
+
+  /// Whether a finished account already owns this university id.
+  ///
+  /// Called before anyone is signed in, which is why it goes through the
+  /// `uid_exists` function (0014) rather than a select — RLS hides `profiles`
+  /// from `anon` entirely. It is what lets one entry screen decide between
+  /// sign-in and sign-up.
+  ///
+  /// "Finished" matters: a student who requested a code once and abandoned
+  /// the wizard already has a row, and must still be sent to sign-up.
+  Future<bool> uidExists(String uid);
 }
 
 
@@ -106,6 +117,18 @@ class SupabaseProfileRepository implements ProfileRepository {
       'last_active': DateTime.now().toUtc().toIso8601String(),
     }).eq('user_id', id);
   }
+
+  @override
+  Future<bool> uidExists(String uid) async {
+    // An RPC, not a select: `anon` cannot read `profiles` at all (0008), and
+    // this runs before there is a session. The function is security definer
+    // and returns nothing but the boolean.
+    final result = await _client.rpc<dynamic>(
+      'uid_exists',
+      params: {'p_uid': uid.trim().toLowerCase()},
+    );
+    return result == true;
+  }
 }
 
 
@@ -155,5 +178,15 @@ class MockProfileRepository implements ProfileRepository {
   @override
   Future<void> setPresence({required bool online}) async {
     // Nothing to persist offline; the mock student is always "online".
+  }
+
+  @override
+  Future<bool> uidExists(String uid) async {
+    // Offline there is exactly one account — whoever is stored. Matching on it
+    // means the demo shows "welcome back" for the saved student and sign-up
+    // for anyone else, which is the same branch the real backend takes.
+    final me = await _store.read();
+    if (me == null) return false;
+    return me.uid.toLowerCase() == uid.trim().toLowerCase();
   }
 }

@@ -27,6 +27,19 @@ class PresenceService {
   RealtimeChannel? _channel;
   String? _selfId;
 
+  Timer? _heartbeat;
+  Future<void> Function()? _onHeartbeat;
+
+  /// How often `user_presence.last_active` is refreshed while the app is in
+  /// the foreground.
+  ///
+  /// `expire_stale_presence()` (0010) flips anyone whose `last_active` is more
+  /// than two minutes old to offline, so without a beat inside that window a
+  /// student reading a long thread is marked offline while they are looking at
+  /// it — and the last-seen everyone else reads is the moment they opened the
+  /// app, not the moment they left it.
+  static const Duration heartbeatInterval = Duration(seconds: 45);
+
   /// Ids currently connected, as last reported by the channel.
   Set<String> get onlineIds => Set.unmodifiable(_ids);
 
@@ -36,12 +49,24 @@ class PresenceService {
 
   /// Joins the campus channel and announces this student. Safe to call more
   /// than once and safe to call in mock mode, where it does nothing.
-  Future<void> start(String userId) async {
+  ///
+  /// [onHeartbeat] refreshes the durable `user_presence` row — the channel is
+  /// what the live dot follows, but the timestamp other clients read when they
+  /// load a profile comes from the table, and a table only knows what it was
+  /// last told.
+  Future<void> start(String userId, {Future<void> Function()? onHeartbeat}) async {
     if (!SupabaseService.isReady || userId.isEmpty) return;
-    if (_channel != null && _selfId == userId) return;
+    if (_channel != null && _selfId == userId) {
+      // Already tracking this student; a repeat call is a foreground event, so
+      // take the opportunity to stamp the row.
+      if (onHeartbeat != null) _onHeartbeat = onHeartbeat;
+      unawaited(_beat());
+      return;
+    }
     await stop();
 
     _selfId = userId;
+    _onHeartbeat = onHeartbeat;
     final log = realtimeStatus('cc-presence');
     final channel = SupabaseService.client.channel(
       'cc-presence',
@@ -65,6 +90,21 @@ class PresenceService {
       });
 
     _channel = channel;
+
+    _heartbeat?.cancel();
+    _heartbeat = Timer.periodic(heartbeatInterval, (_) => unawaited(_beat()));
+    unawaited(_beat());
+  }
+
+  Future<void> _beat() async {
+    final beat = _onHeartbeat;
+    if (beat == null || _selfId == null) return;
+    try {
+      await beat();
+    } catch (_) {
+      // A missed beat costs at most one interval of last-seen accuracy, and
+      // the next one repairs it. Never worth interrupting the student for.
+    }
   }
 
   void _sync(RealtimeChannel channel) {
@@ -86,6 +126,10 @@ class PresenceService {
   /// Leaves the channel — called on sign-out, so the student stops showing as
   /// online the moment they log out rather than when the row decays.
   Future<void> stop() async {
+    _heartbeat?.cancel();
+    _heartbeat = null;
+    _onHeartbeat = null;
+
     final channel = _channel;
     _channel = null;
     _selfId = null;

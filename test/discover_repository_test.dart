@@ -249,11 +249,15 @@ void main() {
     test('recently active is ordered by last seen', () async {
       final result = await run(const DiscoverQuery(recentlyActive: true));
       for (var i = 1; i < result.length; i++) {
-        expect(
-          result[i - 1].lastActive.isAfter(result[i].lastActive) ||
-              result[i - 1].lastActive == result[i].lastActive,
-          isTrue,
-        );
+        final earlier = result[i - 1].lastActive;
+        final later = result[i].lastActive;
+        // An unknown last-seen sorts last, so it may only follow another one.
+        if (earlier == null) {
+          expect(later, isNull);
+          continue;
+        }
+        if (later == null) continue;
+        expect(earlier.isAfter(later) || earlier == later, isTrue);
       }
     });
   });

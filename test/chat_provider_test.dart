@@ -137,6 +137,24 @@ class _FakeChatRepository implements ChatRepository {
   @override
   Stream<IncomingMessage> messages() => _messages.stream;
 
+  /// Stands in for the repository's delta sync. Records the head the provider
+  /// believed the thread was at, and — when [syncDelivers] holds messages for
+  /// it — pushes exactly what a real sync would have fetched.
+  final Map<String, List<Message>> syncDelivers = {};
+
+  @override
+  void syncConversation(String conversationId, {int? headSeq}) {
+    calls.add('sync:$conversationId:$headSeq');
+    final pending = syncDelivers.remove(conversationId);
+    if (pending == null) return;
+    for (final message in pending) {
+      _messages.add(IncomingMessage(
+        conversationId: conversationId,
+        message: message,
+      ));
+    }
+  }
+
   @override
   Stream<TypingSignal> typing() => _typing.stream;
 
@@ -157,6 +175,11 @@ class _FakeChatRepository implements ChatRepository {
   @override
   Future<void> notifyTyping(String conversationId) async {
     calls.add('typing:$conversationId');
+  }
+
+  @override
+  Future<void> notifyStoppedTyping(String conversationId) async {
+    calls.add('stoppedTyping:$conversationId');
   }
 
   @override

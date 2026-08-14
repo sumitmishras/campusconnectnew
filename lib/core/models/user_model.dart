@@ -87,7 +87,17 @@ class User {
   final List<String> achievements;
 
   final bool isOnline;
-  final DateTime lastActive;
+
+  /// When this student was last seen, as `user_presence.last_active` recorded
+  /// it — or as the presence channel observed them leaving.
+  ///
+  /// Null means *unknown*, which is a real answer and not the same as "just
+  /// now": a student with no presence row yet, one who has never opened the
+  /// app since the table was populated, or a chat-list row whose presence
+  /// columns came back empty. It used to be filled in with `DateTime.now()` at
+  /// the point the row was mapped, which is why a stranger could be shown as
+  /// "Active just now" on the strength of nothing at all.
+  final DateTime? lastActive;
   final String? campusStatus;
 
   // Privacy
@@ -117,7 +127,7 @@ class User {
     this.badges = const [],
     this.achievements = const [],
     this.isOnline = false,
-    required this.lastActive,
+    this.lastActive,
     this.campusStatus,
     this.hideDepartment = false,
     this.hideYear = false,
@@ -161,14 +171,27 @@ class User {
   }
 
   /// Human friendly "last seen" text, honouring the privacy toggle.
+  ///
+  /// [lastActive] is held in UTC and only turned into local time here, at the
+  /// point it is read — `difference` between two instants is the same number
+  /// either way, so the arithmetic never depends on which zone the phone is in.
+  ///
+  /// When there is no timestamp this says "Offline" rather than inventing one.
+  /// A wrong time reads as fact; "Offline" reads as what is actually known.
   String get lastActiveLabel {
     if (hideActiveStatus) return '';
     if (isOnline) return 'Online now';
-    final diff = DateTime.now().difference(lastActive);
-    if (diff.inMinutes < 1) return 'Active just now';
+
+    final seen = lastActive;
+    if (seen == null) return 'Offline';
+
+    final diff = DateTime.now().difference(seen.toLocal());
+    // A clock that is behind the server's would otherwise read as the future.
+    if (diff.isNegative || diff.inMinutes < 1) return 'Active just now';
     if (diff.inMinutes < 60) return 'Active ${diff.inMinutes}m ago';
     if (diff.inHours < 24) return 'Active ${diff.inHours}h ago';
-    return 'Active ${diff.inDays}d ago';
+    if (diff.inDays < 7) return 'Active ${diff.inDays}d ago';
+    return 'Offline';
   }
 
   int get completionPercentage {
@@ -301,8 +324,10 @@ class User {
             fallback: VerificationLevel.email),
         badges: (json['badges'] as List?)?.cast<String>() ?? const [],
         achievements: (json['achievements'] as List?)?.cast<String>() ?? const [],
+        // The student restoring their own session is, by definition, here now.
+        // No last-seen is stored: it would be a guess, and it is never read
+        // while `isOnline` is true.
         isOnline: true,
-        lastActive: DateTime.now(),
         campusStatus: json['campusStatus'] as String?,
         hideDepartment: json['hideDepartment'] as bool? ?? false,
         hideYear: json['hideYear'] as bool? ?? false,

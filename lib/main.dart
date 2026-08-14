@@ -8,11 +8,15 @@ import 'core/providers/auth_provider.dart';
 import 'core/providers/campus_provider.dart';
 import 'core/providers/chat_provider.dart';
 import 'core/providers/user_provider.dart' show UserProvider;
+import 'core/models/chat_model.dart';
 import 'core/services/presence_service.dart';
+import 'core/services/push_service.dart';
 import 'core/services/supabase_service.dart';
 import 'core/theme/app_theme.dart';
 import 'features/auth/screens/welcome_screen.dart';
 import 'features/auth/screens/registration_wizard.dart';
+import 'features/chat/screens/chat_detail_screen.dart';
+import 'features/chat/screens/group_chat_screen.dart';
 import 'features/navigation/main_navigation.dart';
 
 Future<void> main() async {
@@ -20,8 +24,14 @@ Future<void> main() async {
   // No-op unless SUPABASE_URL / SUPABASE_ANON_KEY were passed via
   // --dart-define; the app falls back to mock data in that case.
   await SupabaseService.initialize();
+  // Before runApp, so the notification that launched the app from cold is
+  // read while it is still there to read.
+  await PushService.initialize();
   runApp(const CampusConnectApp());
 }
+
+/// Lets a notification tap push a screen from outside the widget tree.
+final navigatorKey = GlobalKey<NavigatorState>();
 
 class CampusConnectApp extends StatelessWidget {
   const CampusConnectApp({super.key});
@@ -57,6 +67,7 @@ class CampusConnectApp extends StatelessWidget {
       child: MaterialApp(
         title: 'Campus Connect',
         debugShowCheckedModeBanner: false,
+        navigatorKey: navigatorKey,
         theme: AppTheme.lightTheme,
         darkTheme: AppTheme.darkTheme,
         themeMode: ThemeMode.system,
@@ -90,13 +101,87 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
     // `programs` and `tags` are only readable to a signed-in student, so this
     // is attempted here and again once a session exists.
     unawaited(Repositories.loadReferenceData());
+    // A notification is not raised for the thread already on screen, and this
+    // is how the service finds out which one that is.
+    PushService.currentConversation =
+        () => context.read<ChatProvider>().openConversationId;
+    PushService.pendingLink.addListener(_followPendingLink);
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    PushService.pendingLink.removeListener(_followPendingLink);
+    PushService.currentConversation = null;
     unawaited(PresenceService.instance.stop());
     super.dispose();
+  }
+
+  /// Opens whatever a tapped notification pointed at.
+  ///
+  /// Only two links exist in V1 — `/chat/<conversation_id>` and
+  /// `/connections` — and both land on a screen the app already has. The link
+  /// is held rather than followed when it arrives before there is a session:
+  /// a cold start from a notification reaches here well before sign-in has
+  /// been restored.
+  void _followPendingLink() {
+    final link = PushService.pendingLink.value;
+    if (link == null || link.isEmpty) return;
+
+    final auth = context.read<AuthProvider>();
+    if (auth.status != AuthStatus.loggedIn) return;
+
+    PushService.pendingLink.value = null;
+    unawaited(_openLink(link));
+  }
+
+  Future<void> _openLink(String link) async {
+    final navigator = navigatorKey.currentState;
+    if (navigator == null) return;
+
+    if (link == '/connections') {
+      // Index 2 is the Connections tab.
+      navigator.popUntil((route) => route.isFirst);
+      navigator.pushReplacement(MaterialPageRoute(
+        builder: (_) => const MainNavigation(initialIndex: 2),
+      ));
+      return;
+    }
+
+    if (!link.startsWith('/chat/')) return;
+    final conversationId = link.substring('/chat/'.length);
+    if (conversationId.isEmpty) return;
+
+    final chats = context.read<ChatProvider>();
+    // The thread may not be in memory yet — a notification that arrived while
+    // the app was closed is exactly that case.
+    var chat = chats.chatById(conversationId);
+    GroupChat? group = _groupFor(chats, conversationId);
+    if (chat == null && group == null) {
+      await chats.refresh();
+      if (!mounted) return;
+      chat = chats.chatById(conversationId);
+      group = _groupFor(chats, conversationId);
+    }
+
+    // Captured before the closure so the builder cannot see them change.
+    final direct = chat;
+    final thread = group;
+    if (direct == null && thread == null) return;
+
+    navigator.popUntil((route) => route.isFirst);
+    navigator.push(MaterialPageRoute(
+      builder: (_) => direct != null
+          ? ChatDetailScreen(chat: direct)
+          : GroupChatScreen(groupId: thread!.id),
+    ));
+  }
+
+  static GroupChat? _groupFor(ChatProvider chats, String conversationId) {
+    for (final g in chats.groupChats) {
+      if (g.conversationId == conversationId) return g;
+    }
+    return null;
   }
 
   @override
@@ -111,7 +196,10 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
         // and neither arrives through an update response.
         auth.refreshProfile();
         final id = auth.currentUser?.id;
-        if (id != null) unawaited(PresenceService.instance.start(id));
+        if (id != null) {
+          unawaited(PresenceService.instance
+              .start(id, onHeartbeat: () => auth.setPresence(online: true)));
+        }
         // Android freezes the socket with the app. Realtime re-joins on the
         // way back but replays nothing, so a message or a connection request
         // that landed in between exists only in Postgres until it is fetched
@@ -140,14 +228,23 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
       if (_presenceFor != null) {
         _presenceFor = null;
         unawaited(PresenceService.instance.stop());
+        // Drops the FCM token, so the next person to sign in on this phone
+        // does not receive the last person's messages.
+        unawaited(PushService.signOut());
       }
       return;
     }
 
     if (_presenceFor == id) return;
     _presenceFor = id;
-    unawaited(PresenceService.instance.start(id));
+    unawaited(PresenceService.instance
+        .start(id, onHeartbeat: () => auth.setPresence(online: true)));
     unawaited(Repositories.loadReferenceData());
+    // Needs a session: `register_push_device` writes against auth.uid().
+    unawaited(PushService.registerDevice());
+    // A notification tapped before sign-in finished restoring.
+    WidgetsBinding.instance
+        .addPostFrameCallback((_) => _followPendingLink());
   }
 
   @override

@@ -1,0 +1,125 @@
+<!--
+  Campus Connect - sign-in code email.
+
+  Served to GoTrue over the internal Docker network by Caddy:
+      GOTRUE_MAILER_TEMPLATES_MAGIC_LINK=http://caddy:8080/email-templates/otp.html
+
+  Deployed copy lives at volumes/proxy/caddy/email-templates/otp.html on the
+  host. Edit this file, not that one, then copy it up - this is the version
+  controlled original.
+
+  GoTrue substitutions available here: .Token .TokenHash .ConfirmationURL
+  .Email .SiteURL .RedirectTo
+
+  Deliberately NOT using .ConfirmationURL. GOTRUE_JWT_ISSUER is API_EXTERNAL_URL,
+  which must end in /auth/v1 to match the issuer hosted Supabase produces. GoTrue
+  builds the confirmation link as API_EXTERNAL_URL + MAILER_URLPATHS_CONFIRMATION,
+  so that same suffix makes the link come out as /auth/v1/auth/v1/verify. The app
+  signs in with an 8-digit code and never needs the link, so the correct fix is to
+  omit it rather than break the issuer.
+
+  Table-based layout with inline styles on purpose: Gmail strips <style> blocks
+  and Outlook ignores most modern CSS.
+-->
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Your Campus Connect sign-in code</title>
+  </head>
+  <body style="margin:0; padding:0; background-color:#f4f5f7; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+
+    <!-- Preheader: shown in the inbox list preview, hidden in the body. -->
+    <div style="display:none; max-height:0; overflow:hidden; opacity:0; color:transparent; height:0; width:0;">
+      Your Campus Connect sign-in code is {{ .Token }} &#8212; valid for 10 minutes.
+    </div>
+
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f4f5f7; padding:32px 12px;">
+      <tr>
+        <td align="center">
+
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:480px; background-color:#ffffff; border-radius:14px; overflow:hidden; box-shadow:0 1px 3px rgba(16,24,40,0.08);">
+
+            <!-- Header -->
+            <tr>
+              <td style="background-color:#1d4ed8; padding:28px 32px;">
+                <p style="margin:0; font-size:19px; line-height:26px; font-weight:700; color:#ffffff; letter-spacing:-0.2px;">
+                  Campus Connect
+                </p>
+                <p style="margin:4px 0 0; font-size:13px; line-height:18px; color:#c7d7fe;">
+                  Chandigarh University
+                </p>
+              </td>
+            </tr>
+
+            <!-- Body -->
+            <tr>
+              <td style="padding:32px 32px 8px;">
+                <p style="margin:0 0 8px; font-size:17px; line-height:24px; font-weight:600; color:#101828;">
+                  Your sign-in code
+                </p>
+                <p style="margin:0 0 24px; font-size:14px; line-height:22px; color:#475467;">
+                  Enter this code in the app to finish signing in as
+                  <span style="color:#101828; font-weight:600;">{{ .Email }}</span>.
+                </p>
+              </td>
+            </tr>
+
+            <!-- The code -->
+            <tr>
+              <td style="padding:0 32px;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f8f9fc; border:1px solid #e4e7ec; border-radius:10px;">
+                  <tr>
+                    <td align="center" style="padding:22px 12px;">
+                      <span style="font-family:'SF Mono',SFMono-Regular,Consolas,'Liberation Mono',Menlo,monospace; font-size:31px; line-height:38px; font-weight:700; color:#101828; letter-spacing:7px;">{{ .Token }}</span>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+
+            <tr>
+              <td style="padding:16px 32px 0;">
+                <p style="margin:0; font-size:13px; line-height:20px; color:#667085;">
+                  This code expires in <strong style="color:#344054;">10 minutes</strong> and can only be used once.
+                </p>
+              </td>
+            </tr>
+
+            <!-- Security note -->
+            <tr>
+              <td style="padding:24px 32px 32px;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-top:1px solid #eaecf0;">
+                  <tr>
+                    <td style="padding-top:20px;">
+                      <p style="margin:0; font-size:13px; line-height:20px; color:#667085;">
+                        If you didn&#39;t ask to sign in, you can ignore this email &#8212; nobody can
+                        access your account without this code. Campus Connect will never ask you
+                        for it by phone, chat or reply.
+                      </p>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+
+            <!-- Footer -->
+            <tr>
+              <td style="background-color:#f8f9fc; padding:20px 32px; border-top:1px solid #eaecf0;">
+                <p style="margin:0; font-size:12px; line-height:18px; color:#98a2b3;">
+                  Sent automatically by Campus Connect because this address was entered
+                  in the app. This mailbox is not monitored.
+                </p>
+              </td>
+            </tr>
+
+          </table>
+
+        </td>
+      </tr>
+    </table>
+
+  </body>
+</html>

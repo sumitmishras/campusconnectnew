@@ -93,6 +93,44 @@ class AuthProvider with ChangeNotifier {
     }
   }
 
+  /// Step 0 — does a finished account already own this university id?
+  ///
+  /// Three outcomes, and the difference matters: `true` means greet a
+  /// returning student, `false` means this is a sign-up, and `null` means the
+  /// lookup itself did not answer.
+  ///
+  /// `null` is not folded into `false` on purpose. This lookup is **advisory**
+  /// — both branches send a code either way, and the binding decision is still
+  /// made by [verifyOtp], which reads the profile with a real session and
+  /// returns `needsProfile`. So a failed lookup must not block sign-in; the
+  /// screen just drops the personalised wording and carries on. Telling
+  /// someone with an account that they need to register would be worse than
+  /// saying nothing.
+  ///
+  /// This is also why the catch here is broader than [_guard]'s. Everywhere
+  /// else a non-[AuthFailure] is a bug and should propagate; here it is
+  /// usually a flaky network on the very first screen, and there is a correct
+  /// thing to do with it.
+  Future<bool?> uidExists(String input) async {
+    _errorMessage = CuIdentity.validate(input);
+    if (_errorMessage != null) {
+      notifyListeners();
+      return null;
+    }
+
+    _isBusy = true;
+    _errorMessage = null;
+    notifyListeners();
+    try {
+      return await _backend.uidExists(CuIdentity.parse(input)!.uid);
+    } catch (_) {
+      return null;
+    } finally {
+      _isBusy = false;
+      notifyListeners();
+    }
+  }
+
   /// Step 1 — validate the CU email and send a code.
   /// Returns true when the caller should move on to the OTP screen.
   Future<bool> requestOtp(String email) async {

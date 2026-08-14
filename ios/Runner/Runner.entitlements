@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- The Push Notifications capability. `development` is what a debug
+	     build and TestFlight both need; Xcode rewrites it to `production`
+	     when archiving for the App Store, so this value is correct for
+	     every build that is not a store submission.
+
+	     This alone is not enough: the App ID on the Apple Developer portal
+	     must also have Push Notifications enabled, and the APNs key has to
+	     be uploaded to the Firebase project. Neither lives in the repo. -->
+	<key>aps-environment</key>
+	<string>development</string>
+</dict>
+</plist>
